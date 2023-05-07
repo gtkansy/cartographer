@@ -63,13 +63,14 @@ float ComputeCandidateScore(const ProbabilityGrid& probability_grid,
                             int x_index_offset, int y_index_offset) {
   float candidate_score = 0.f;
   for (const Eigen::Array2i& xy_index : discrete_scan) {
+    // 每个点都加上像素坐标的offset，相当于对点云进行平移
     const Eigen::Array2i proposed_xy_index(xy_index.x() + x_index_offset,
                                            xy_index.y() + y_index_offset);
     const float probability =
         probability_grid.GetProbability(proposed_xy_index);
-    candidate_score += probability;
+    candidate_score += probability;  // 直接以概率值为得分，占据的话得分越高
   }
-  candidate_score /= static_cast<float>(discrete_scan.size());
+  candidate_score /= static_cast<float>(discrete_scan.size());  // 平均得分
   CHECK_GT(candidate_score, 0.f);
   return candidate_score;
 }
@@ -80,22 +81,30 @@ RealTimeCorrelativeScanMatcher2D::RealTimeCorrelativeScanMatcher2D(
     const proto::RealTimeCorrelativeScanMatcherOptions& options)
     : options_(options) {}
 
+// 生成候选项
 std::vector<Candidate2D>
 RealTimeCorrelativeScanMatcher2D::GenerateExhaustiveSearchCandidates(
     const SearchParameters& search_parameters) const {
   int num_candidates = 0;
+  // num_scans旋转点云的个数
   for (int scan_index = 0; scan_index != search_parameters.num_scans;
        ++scan_index) {
+    // 每一个角度下 xy的搜索格子数 num_linear_x_candidates * num_linear_y_candidates
     const int num_linear_x_candidates =
         (search_parameters.linear_bounds[scan_index].max_x -
          search_parameters.linear_bounds[scan_index].min_x + 1);
     const int num_linear_y_candidates =
         (search_parameters.linear_bounds[scan_index].max_y -
          search_parameters.linear_bounds[scan_index].min_y + 1);
-    num_candidates += num_linear_x_candidates * num_linear_y_candidates;
+    num_candidates += num_linear_x_candidates * num_linear_y_candidates; // 整体加起来，就是所有的候选解个数
   }
+  /*
+    假设以num_linear_x_candidates * num_linear_y_candidates为一组，一共有num_scans组。也就是一个组内点云的旋转角度一致
+    比如， 5*5为一组，num_scans为91， 那么candidates size ==5*5*91
+    每组内，旋转一样，但是栅格index_offset不一样
+  */
   std::vector<Candidate2D> candidates;
-  candidates.reserve(num_candidates);
+  candidates.reserve(num_candidates); 
   for (int scan_index = 0; scan_index != search_parameters.num_scans;
        ++scan_index) {
     for (int x_index_offset = search_parameters.linear_bounds[scan_index].min_x;
@@ -152,6 +161,8 @@ void RealTimeCorrelativeScanMatcher2D::ScoreCandidates(
     const Grid2D& grid, const std::vector<DiscreteScan2D>& discrete_scans,
     const SearchParameters& search_parameters,
     std::vector<Candidate2D>* const candidates) const {
+  // discrete_scans： 旋转后点云在地图的索引， 也是多个采样角度上的点云集合， size为num_scans
+  // discrete_scans[candidate.scan_index]   指定角度上的点云， 多个为一组，一组内角度一样
   for (Candidate2D& candidate : *candidates) {
     switch (grid.GetGridType()) {
       case GridType::PROBABILITY_GRID:
@@ -167,6 +178,7 @@ void RealTimeCorrelativeScanMatcher2D::ScoreCandidates(
             candidate.y_index_offset);
         break;
     }
+    // 对得分进行加权
     candidate.score *=
         std::exp(-common::Pow2(std::hypot(candidate.x, candidate.y) *
                                    options_.translation_delta_cost_weight() +
