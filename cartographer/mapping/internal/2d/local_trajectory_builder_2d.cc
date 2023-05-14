@@ -73,14 +73,14 @@ std::unique_ptr<transform::Rigid2d> LocalTrajectoryBuilder2D::ScanMatch(
   // The online correlative scan matcher will refine the initial estimate for
   // the Ceres scan matcher.
   transform::Rigid2d initial_ceres_pose = pose_prediction;
-
+  // 暴力搜索的方式
   if (options_.use_online_correlative_scan_matching()) {
     const double score = real_time_correlative_scan_matcher_.Match(
         pose_prediction, filtered_gravity_aligned_point_cloud,
         *matching_submap->grid(), &initial_ceres_pose);
     kRealTimeCorrelativeScanMatcherScoreMetric->Observe(score);
   }
-
+  // ceres优化的方式
   auto pose_observation = absl::make_unique<transform::Rigid2d>();
   ceres::Solver::Summary summary;
   ceres_scan_matcher_.Match(pose_prediction.translation(), initial_ceres_pose,
